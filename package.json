@@ -2,14 +2,11 @@
   "name": "domainCode",
   "type": "module",
   "private": true,
-  "engines": {
-    "node": ">=18.0.0"
-  },
   "scripts": {
-    "build": "nuxt build",
-    "dev": "nuxt dev",
-    "generate": "nuxt generate",
-    "preview": "nuxt preview"
+    "build": "node -r ./scripts/node-preload.cjs ./node_modules/nuxi/bin/nuxi.mjs build",
+    "dev": "node -r ./scripts/node-preload.cjs ./node_modules/nuxi/bin/nuxi.mjs dev --host 127.0.0.1 --port 3000",
+    "generate": "node -r ./scripts/node-preload.cjs ./node_modules/nuxi/bin/nuxi.mjs generate",
+    "preview": "node -r ./scripts/node-preload.cjs ./node_modules/nuxi/bin/nuxi.mjs preview"
   },
   "dependencies": {
     "imapflow": "^1.2.8",
