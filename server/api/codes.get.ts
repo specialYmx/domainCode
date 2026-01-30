@@ -1,53 +1,51 @@
-﻿interface CacheData {
-    codes: any[];
-    timestamp: number;
+﻿import { getCache, setCache } from "../utils/cache";
+
+let refreshInFlight: Promise<any[]> | null = null;
+
+async function refreshCache(): Promise<any[]> {
+    if (refreshInFlight) return refreshInFlight;
+    refreshInFlight = (async () => {
+        const codes = await fetchChatGPTCodes();
+        setCache(codes);
+        return codes;
+    })().finally(() => {
+        refreshInFlight = null;
+    });
+    return refreshInFlight;
 }
 
-let cache: CacheData | null = null;
-const CACHE_TTL = 15 * 1000;
-
 export default defineEventHandler(async (event) => {
-    try {
-        const query = getQuery(event);
-        const forceRefresh = query.force === 'true';
+    const query = getQuery(event);
+    const forceRefresh = query.force === "true";
+    const cached = getCache();
+    const now = Date.now();
 
-        const now = Date.now();
-
-        if (cache && !forceRefresh && (now - cache.timestamp) < CACHE_TTL) {
-            return {
-                success: true,
-                codes: cache.codes,
-                cached: true,
-                cacheAge: Math.floor((now - cache.timestamp) / 1000)
-            };
+    if (!forceRefresh && cached) {
+        const cacheAgeMs = now - cached.timestamp;
+        if (cacheAgeMs > 5000) {
+            refreshCache().catch((err) => console.error("IMAP refresh error:", err));
         }
-
-        const codes = await fetchChatGPTCodes();
-
-        cache = {
-            codes,
-            timestamp: now
+        return {
+            success: true,
+            codes: cached.codes,
+            cached: true,
+            cacheAge: Math.floor(cacheAgeMs / 1000),
         };
+    }
 
+    try {
+        const codes = await refreshCache();
         return {
             success: true,
             codes,
-            cached: false
+            cached: false,
         };
     } catch (error: any) {
-        if (cache) {
-            return {
-                success: true,
-                codes: cache.codes,
-                cached: true,
-                stale: true
-            };
-        }
         return {
             success: false,
             codes: [],
             cached: false,
-            error: error?.message || 'Failed to fetch codes',
+            error: error?.message || "Failed to fetch codes",
         };
     }
 });

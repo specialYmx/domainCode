@@ -38,9 +38,8 @@ export async function fetchChatGPTCodes(): Promise<VerificationCode[]> {
                 });
 
                 if (uids && uids.length > 0) {
-                    const recentUids = uids.slice(-20);
-
-                    for (const uid of recentUids) {
+                    const sortedUids = [...uids].sort((a, b) => a - b);
+                    for (const uid of sortedUids) {
                         const msg = await client.fetchOne(uid.toString(), { source: true });
                         if (msg && msg.source) {
                             const parsed = await simpleParser(msg.source);

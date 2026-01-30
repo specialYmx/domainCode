@@ -1,42 +1,49 @@
-<script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+﻿<script setup lang="ts">
+import { ref, computed, onMounted, onUnmounted } from "vue";
 
-// 强制刷新标记
-const forceParam = ref('');
+const forceParam = ref("");
 
-// 使用 lazy + server:false 让页面快速渲染，避免 SSR hydration mismatch
-const { data, pending: loading, error: fetchError, refresh } = useFetch<any>(
-  () => `/api/codes${forceParam.value}`,
-  {
-    lazy: true,
-    server: false, // 仅在客户端获取数据，避免 hydration mismatch
-    watch: false, // 关闭自动监听，由我们手动控制
-  }
-);
+const {
+  data,
+  pending: loading,
+  error: fetchError,
+  refresh,
+} = useFetch<any>(() => `/api/codes${forceParam.value}`, {
+  lazy: true,
+  server: false,
+  watch: false,
+});
 
 const codes = computed(() => data.value?.codes || []);
-const lastUpdated = ref('');
+const lastUpdated = ref("");
 const isRefreshing = ref(false);
 const refreshCooldown = ref(0);
 const cooldownTimer = ref<NodeJS.Timeout | null>(null);
+const sseConnected = ref(false);
+let eventSource: EventSource | null = null;
 
 const isCached = computed(() => data.value?.cached === true);
 
-// 错误处理优化
-const error = computed(() => fetchError.value ? '网络错误，请稍后再试' : (data.value?.success === false ? '获取数据失败' : null));
+const error = computed(() =>
+  fetchError.value
+    ? "网络错误，请稍后再试"
+    : data.value?.success === false
+      ? "获取数据失败"
+      : null,
+);
 
-// 手动刷新 - 强制获取最新数据
 const fetchCodes = async (force = true) => {
+  if (loading.value || isRefreshing.value) return;
   if (force && refreshCooldown.value > 0) return;
-  
+
   isRefreshing.value = true;
   try {
-    // 强制刷新时添加参数绕过缓存
-    forceParam.value = force ? `?force=true&t=${Date.now()}` : `?t=${Date.now()}`;
+    forceParam.value = force
+      ? `?force=true&t=${Date.now()}`
+      : `?t=${Date.now()}`;
     await refresh();
     lastUpdated.value = new Date().toLocaleTimeString();
-    
-    // 如果是强制刷新，设置 1 秒冷却防止快速连点
+
     if (force) {
       refreshCooldown.value = 1;
       if (cooldownTimer.value) clearInterval(cooldownTimer.value);
@@ -53,40 +60,64 @@ const fetchCodes = async (force = true) => {
   }
 };
 
-// 客户端初始化和定时刷新
 onMounted(() => {
   lastUpdated.value = new Date().toLocaleTimeString();
-  // 定时刷新使用缓存（不强制），节省资源
-  const interval = setInterval(() => fetchCodes(false), 30000);
+
+  eventSource = new EventSource("/api/stream");
+  eventSource.onopen = () => {
+    sseConnected.value = true;
+  };
+  eventSource.onerror = () => {
+    sseConnected.value = false;
+  };
+  eventSource.onmessage = (evt) => {
+    try {
+      const payload = JSON.parse(evt.data);
+      if (payload?.type === "codes" && payload.data) {
+        data.value = {
+          success: true,
+          codes: payload.data.codes || [],
+          cached: true,
+        };
+        lastUpdated.value = new Date().toLocaleTimeString();
+      }
+    } catch {
+      // ignore malformed payloads
+    }
+  };
+
+  const interval = setInterval(() => fetchCodes(false), 10000);
   onUnmounted(() => {
     clearInterval(interval);
     if (cooldownTimer.value) clearInterval(cooldownTimer.value);
+    if (eventSource) eventSource.close();
   });
 });
 
 const copyToClipboard = (text: string) => {
   navigator.clipboard.writeText(text);
-  alert('已复制到剪贴板');
+  alert("已复制到剪贴板");
 };
 </script>
 
 <template>
   <div class="h-screen overflow-hidden flex flex-col items-center bg-[radial-gradient(circle_at_50%_50%,#1a1a1a_0%,#0a0a0a_100%)] text-white font-sans">
     <div class="max-w-3xl w-full h-full flex flex-col p-4 md:p-12 md:pb-4 space-y-6">
-      <!-- Header (Fixed) -->
       <div class="text-center space-y-3 shrink-0">
         <h1 class="text-3xl md:text-5xl font-bold tracking-tight bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
           验证码接收终端
         </h1>
         <p class="text-gray-400 text-sm md:text-base">
-          实时从您的主邮箱同步验证邮件
+          邮箱同步有延迟，约 40 秒后再试
         </p>
       </div>
 
-      <!-- Controls (Fixed) -->
       <div class="flex justify-between items-center bg-white/5 p-3 rounded-2xl border border-white/10 backdrop-blur-md shrink-0">
         <div class="text-sm text-gray-400">
-          {{ lastUpdated ? `最近更新: ${lastUpdated}` : '正在同步...' }}
+          {{ lastUpdated ? `最近更新: ${lastUpdated}` : "正在同步..." }}
+        </div>
+        <div class="text-[10px] text-gray-500">
+          {{ sseConnected ? "实时连接" : "非实时" }}
         </div>
         <button
           @click="() => fetchCodes(true)"
@@ -104,10 +135,8 @@ const copyToClipboard = (text: string) => {
         {{ error }}
       </div>
 
-      <!-- Scrollable Area -->
       <div class="flex-1 overflow-y-auto custom-scrollbar pr-1 -mr-1">
         <div class="space-y-4 pb-8">
-          <!-- Loading Skeleton -->
           <div v-if="loading && codes.length === 0" class="flex flex-col gap-4">
             <div v-for="i in 3" :key="i" class="glass-card p-5 rounded-2xl space-y-3 animate-pulse">
               <div class="flex justify-between items-center">
@@ -125,7 +154,6 @@ const copyToClipboard = (text: string) => {
             </div>
           </div>
 
-          <!-- Code List (Single Column) -->
           <div v-else class="flex flex-col gap-2 md:gap-3">
             <template v-if="codes.length > 0">
               <div 
@@ -134,14 +162,13 @@ const copyToClipboard = (text: string) => {
                 class="glass-card p-3 md:p-4 rounded-xl space-y-2 transition-all hover:bg-white/5"
                 :class="{ 'border-emerald-500/50 shadow-[0_0_20px_rgba(16,185,129,0.15)]': idx === 0 }"
               >
-                <!-- Compact Meta Row -->
                 <div class="flex justify-between items-center gap-3">
                   <div class="flex items-center gap-2 min-w-0">
                     <span v-if="idx === 0" class="text-[9px] font-mono text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded-sm">LATEST</span>
                     <div class="flex items-center gap-2 text-[10px] text-gray-500 min-w-0">
                       <span class="truncate text-gray-400">收件: {{ item.recipient }}</span>
                       <span class="hidden sm:inline opacity-20 text-[8px]">|</span>
-                      <span class="truncate italic hidden sm:inline">自: {{ item.sender }}</span>
+                      <span class="truncate italic hidden sm:inline">来自 {{ item.sender }}</span>
                     </div>
                   </div>
                   <span class="text-[10px] text-gray-600 font-mono whitespace-nowrap">
@@ -149,7 +176,6 @@ const copyToClipboard = (text: string) => {
                   </span>
                 </div>
                 
-                <!-- Main Content Row -->
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-4 min-w-0">
                     <div class="text-3xl font-mono font-bold text-white tracking-[0.1em]">
@@ -177,7 +203,6 @@ const copyToClipboard = (text: string) => {
             </template>
           </div>
 
-          <!-- Footer info inside scrollable -->
           <div class="text-center text-[10px] text-gray-600 space-y-2 mt-4">
             <p>数据实时同步，请确保您的主邮箱 IMAP 服务已开启</p>
           </div>
@@ -196,7 +221,6 @@ const copyToClipboard = (text: string) => {
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
 }
 
-/* Custom Scrollbar */
 .custom-scrollbar::-webkit-scrollbar {
   width: 5px;
 }
