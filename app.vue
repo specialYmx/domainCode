@@ -101,128 +101,162 @@ const copyToClipboard = (text: string) => {
 </script>
 
 <template>
-  <div class="h-screen overflow-hidden flex flex-col items-center bg-[radial-gradient(circle_at_50%_50%,#1a1a1a_0%,#0a0a0a_100%)] text-white font-sans">
-    <div class="max-w-3xl w-full h-full flex flex-col p-4 md:p-12 md:pb-4 space-y-6">
-      <div class="text-center space-y-3 shrink-0">
-        <h1 class="text-3xl md:text-5xl font-bold tracking-tight bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
+  <div class="h-screen overflow-hidden flex flex-col items-center bg-[#050505] text-white font-['Outfit',_sans-serif]">
+    <!-- Background subtle gradient decoration -->
+    <div class="fixed inset-0 overflow-hidden pointer-events-none">
+      <div class="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-emerald-500/5 blur-[120px] rounded-full"></div>
+      <div class="absolute -bottom-[10%] -right-[10%] w-[40%] h-[40%] bg-cyan-500/5 blur-[120px] rounded-full"></div>
+    </div>
+
+    <div class="max-w-4xl w-full h-full flex flex-col p-4 md:p-8 md:pb-4 relative z-10 space-y-6">
+      <!-- Header Section -->
+      <div class="text-center space-y-1.5 shrink-0">
+        <h1 class="text-2xl md:text-3xl font-bold tracking-[0.05em] text-white/90">
           验证码接收终端
         </h1>
-        <p class="text-gray-400 text-sm md:text-base">
-          邮箱同步有延迟，约 40 秒后再试
+        <p class="text-gray-500 text-xs md:text-sm font-medium">
+          约 40 秒后再点击刷新
         </p>
       </div>
 
-      <div class="flex justify-between items-center bg-white/5 p-3 rounded-2xl border border-white/10 backdrop-blur-md shrink-0">
-        <div class="text-sm text-gray-400">
-          {{ lastUpdated ? `最近更新: ${lastUpdated}` : "正在同步..." }}
+      <!-- Action Bar -->
+      <div class="flex flex-wrap gap-4 justify-between items-center bg-white/[0.03] p-3 rounded-2xl border border-white/10 backdrop-blur-xl shrink-0 shadow-lg">
+        <div class="flex items-center gap-4">
+          <div class="text-[12px] md:text-sm text-gray-500 tabular-nums">
+            {{ lastUpdated ? `最近更新: ${lastUpdated}` : "正在同步..." }}
+          </div>
+          <div class="flex items-center gap-1.5 px-2 py-0.5 bg-white/5 rounded-full border border-white/5">
+            <span class="relative flex h-1.5 w-1.5">
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" :class="sseConnected ? 'bg-emerald-400' : 'bg-red-400'"></span>
+              <span class="relative inline-flex rounded-full h-1.5 w-1.5" :class="sseConnected ? 'bg-emerald-500' : 'bg-red-500'"></span>
+            </span>
+            <span class="text-[9px] text-gray-500 font-bold uppercase tracking-widest">
+              {{ sseConnected ? "实时连接" : "断开" }}
+            </span>
+          </div>
         </div>
-        <div class="text-[10px] text-gray-500">
-          {{ sseConnected ? "实时连接" : "非实时" }}
-        </div>
+
         <button
           @click="() => fetchCodes(true)"
           :disabled="loading || isRefreshing || refreshCooldown > 0"
-          class="px-5 py-2 text-sm rounded-xl transition-all glow-btn min-w-[100px]"
-          :class="(loading || isRefreshing || refreshCooldown > 0) ? 'bg-gray-600 cursor-not-allowed opacity-70' : 'bg-emerald-600 hover:bg-emerald-500 hover:shadow-[0_0_15px_rgba(16,185,129,0.3)]'"
+          class="px-6 py-1.5 text-xs font-bold rounded-xl transition-all border border-white/10 hover:border-white/20"
+          :class="(loading || isRefreshing || refreshCooldown > 0) ? 'bg-white/5 text-gray-500 cursor-not-allowed' : 'bg-white text-black hover:bg-white/90 active:scale-95'"
         >
-          <span v-if="loading || isRefreshing">刷新中...</span>
-          <span v-else-if="refreshCooldown > 0">{{ refreshCooldown }}s 后可刷新</span>
+          <span v-if="loading || isRefreshing">刷新中</span>
+          <span v-else-if="refreshCooldown > 0" class="tabular-nums">{{ refreshCooldown }}s 重试</span>
           <span v-else>立即刷新</span>
         </button>
       </div>
 
-      <div v-if="error" class="p-3 bg-red-500/10 border border-red-500/20 text-red-500 rounded-xl text-center text-sm shrink-0">
-        {{ error }}
-      </div>
+      <!-- Error Message -->
+      <transition name="fade">
+        <div v-if="error" class="p-3 bg-red-500/5 border border-red-500/10 text-red-400/80 rounded-xl text-center text-xs shrink-0">
+          {{ error }}
+        </div>
+      </transition>
 
-      <div class="flex-1 overflow-y-auto custom-scrollbar pr-1 -mr-1">
-        <div class="space-y-4 pb-8">
-          <div v-if="loading && codes.length === 0" class="flex flex-col gap-4">
-            <div v-for="i in 3" :key="i" class="glass-card p-5 rounded-2xl space-y-3 animate-pulse">
-              <div class="flex justify-between items-center">
-                <div class="h-4 w-16 bg-white/10 rounded"></div>
-                <div class="h-4 w-32 bg-white/10 rounded"></div>
-              </div>
-              <div class="flex items-center justify-between">
-                <div class="h-10 w-40 bg-white/10 rounded"></div>
-                <div class="h-8 w-8 bg-white/10 rounded"></div>
-              </div>
-              <div class="border-t border-white/5 pt-3">
-                <div class="h-4 w-48 bg-white/10 rounded mb-2"></div>
-                <div class="h-3 w-32 bg-white/10 rounded"></div>
-              </div>
+      <!-- Codes List -->
+      <div class="flex-1 overflow-y-auto custom-scrollbar pr-2 -mr-2">
+        <div class="space-y-2 pb-8">
+          <!-- Loading State -->
+          <div v-if="loading && codes.length === 0" class="flex flex-col gap-2">
+            <div v-for="i in 5" :key="i" class="glass-card p-4 rounded-xl flex items-center gap-4 animate-pulse">
+              <div class="h-6 w-24 bg-white/5 rounded"></div>
+              <div class="flex-1 h-3 bg-white/5 rounded"></div>
             </div>
           </div>
 
-          <div v-else class="flex flex-col gap-2 md:gap-3">
-            <template v-if="codes.length > 0">
-              <div 
-                v-for="(item, idx) in codes" 
-                :key="idx" 
-                class="glass-card p-3 md:p-4 rounded-xl space-y-2 transition-all hover:bg-white/5"
-                :class="{ 'border-emerald-500/50 shadow-[0_0_20px_rgba(16,185,129,0.15)]': idx === 0 }"
-              >
-                <div class="flex justify-between items-center gap-3">
-                  <div class="flex items-center gap-2 min-w-0">
-                    <span v-if="idx === 0" class="text-[9px] font-mono text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded-sm">LATEST</span>
-                    <div class="flex items-center gap-2 text-[10px] text-gray-500 min-w-0">
-                      <span class="truncate text-gray-400">收件: {{ item.recipient }}</span>
-                      <span class="hidden sm:inline opacity-20 text-[8px]">|</span>
-                      <span class="truncate italic hidden sm:inline">来自 {{ item.sender }}</span>
-                    </div>
+          <!-- Empty State -->
+          <div v-else-if="codes.length === 0" class="py-12 text-center glass-card rounded-xl text-gray-600 text-sm">
+            暂无匹配的验证码邮件
+          </div>
+
+          <!-- Compact Codes Content -->
+          <div v-else class="flex flex-col gap-2">
+            <div 
+              v-for="(item, idx) in codes" 
+              :key="idx" 
+              class="glass-card group relative p-3 md:px-5 md:py-2.5 rounded-xl flex flex-col md:flex-row md:items-center gap-3 transition-all duration-200 hover:bg-white/[0.04]"
+              :class="idx === 0 ? 'bg-white/[0.06] border-white/20' : 'bg-white/[0.02] border-white/5'"
+            >
+              <!-- NEW Tag - Absolute to avoid shifting -->
+              <div v-if="idx === 0" class="absolute -left-1 -top-1 z-20">
+                <span class="text-[9px] font-bold text-[#050505] bg-emerald-400 px-1.5 py-0.5 rounded shadow-lg shadow-emerald-500/20">最新</span>
+              </div>
+
+              <!-- Code Section - Fixed Width for alignment -->
+              <div class="flex items-center justify-between md:justify-start gap-4 md:w-[150px] shrink-0">
+                <div class="text-2xl md:text-3xl font-mono font-black text-white tracking-[0.1em] leading-none">
+                  {{ item.code }}
+                </div>
+                <!-- Mobile Copy Button -->
+                <button 
+                  @click="copyToClipboard(item.code)"
+                  class="md:hidden p-2 bg-white/5 rounded-lg text-emerald-400"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                </button>
+              </div>
+
+              <!-- Content Info Section -->
+              <div class="flex-1 min-w-0 flex flex-col md:flex-row md:items-center gap-1 md:gap-4 md:border-l md:border-white/10 md:pl-4">
+                <div class="flex-1 min-w-0">
+                  <div class="text-xs md:text-sm font-semibold text-gray-300 truncate">
+                    {{ item.subject }}
                   </div>
-                  <span class="text-[10px] text-gray-600 font-mono whitespace-nowrap">
-                    {{ new Date(item.date).toLocaleString() }}
-                  </span>
+                  <div class="flex items-center gap-2 text-[10px] text-gray-500 mt-0.5">
+                    <span class="truncate">收件: {{ item.recipient }}</span>
+                    <span class="opacity-20">|</span>
+                    <span class="truncate italic font-light">来自 {{ item.sender }}</span>
+                  </div>
                 </div>
                 
-                <div class="flex items-center justify-between">
-                  <div class="flex items-center gap-4 min-w-0">
-                    <div class="text-3xl font-mono font-bold text-white tracking-[0.1em]">
-                      {{ item.code }}
-                    </div>
-                    <div class="text-xs text-gray-500 truncate mt-1 hidden md:block">
-                      {{ item.subject }}
-                    </div>
+                <div class="flex items-center justify-between md:flex-col md:items-end shrink-0 gap-1.5 md:min-w-[120px]">
+                  <div class="text-[10px] text-gray-600 font-mono tabular-nums">
+                    {{ new Date(item.date).toLocaleString([], {month:'numeric', day:'numeric', hour: '2-digit', minute:'2-digit', second: '2-digit'}) }}
                   </div>
-                  
+                  <!-- Desktop Copy Button -->
                   <button 
                     @click="copyToClipboard(item.code)"
-                    class="p-2 hover:bg-white/10 rounded-lg transition-colors text-emerald-400 group relative"
-                    title="复制验证码"
+                    class="hidden md:flex items-center gap-1.5 px-2.5 py-1 bg-white/5 hover:bg-emerald-500/10 hover:text-emerald-400 text-gray-500 rounded transition-all duration-200 text-[10px] font-bold border border-white/5"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                    复制
                   </button>
                 </div>
               </div>
-            </template>
-            <template v-else-if="!loading">
-              <div class="py-12 text-center text-gray-500 glass-card rounded-2xl text-sm">
-                暂无匹配的验证码邮件
-              </div>
-            </template>
-          </div>
-
-          <div class="text-center text-[10px] text-gray-600 space-y-2 mt-4">
-            <p>数据实时同步，请确保您的主邮箱 IMAP 服务已开启</p>
+            </div>
           </div>
         </div>
       </div>
+      
+      <!-- Footer -->
+      <footer class="text-center text-[10px] text-gray-700 space-y-1 pb-4 shrink-0 border-t border-white/5 pt-4">
+        <p>数据实时同步，请确保您的主邮箱 IMAP 服务已开启</p>
+      </footer>
     </div>
   </div>
 </template>
 
-<style scoped>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800;900&family=JetBrains+Mono:wght@800&display=swap');
+
+.font-mono {
+  font-family: 'JetBrains+Mono', monospace !important;
+}
+
+body {
+  margin: 0;
+  background-color: #050505;
+}
+
 .glass-card {
-  background: rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 
 .custom-scrollbar::-webkit-scrollbar {
-  width: 5px;
+  width: 4px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
@@ -230,21 +264,31 @@ const copyToClipboard = (text: string) => {
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
   border-radius: 10px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.1);
 }
 
-@keyframes pulse-glow {
-  0% { box-shadow: 0 0 5px rgba(16, 185, 129, 0.2); }
-  50% { box-shadow: 0 0 20px rgba(16, 185, 129, 0.4); }
-  100% { box-shadow: 0 0 5px rgba(16, 185, 129, 0.2); }
+.fade-enter-active, .fade-leave-active {
+  transition: opacity 0.3s ease;
 }
 
-.active-code {
-  animation: pulse-glow 2s infinite;
+.fade-enter-from, .fade-leave-to {
+  opacity: 0;
+}
+
+.h-screen::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.05) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.01), rgba(0, 255, 0, 0.005), rgba(0, 0, 255, 0.01));
+  z-index: 100;
+  background-size: 100% 2px, 2px 100%;
+  pointer-events: none;
+  opacity: 0.1;
 }
 </style>
+
