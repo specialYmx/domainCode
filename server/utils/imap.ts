@@ -1,4 +1,4 @@
-import { ImapFlow } from 'imapflow';
+﻿import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
 
 export interface VerificationCode {
@@ -29,12 +29,15 @@ export async function fetchChatGPTCodes(): Promise<VerificationCode[]> {
         try {
             let lock = await client.getMailboxLock('INBOX');
             try {
+                const sinceHours = parseFloat(process.env.IMAP_SINCE_HOURS || '3');
+                const sinceDate = new Date(Date.now() - sinceHours * 60 * 60 * 1000);
+
                 const uids = await client.search({
                     from: process.env.NEXT_PUBLIC_SENDER_FILTER || 'noreply@tm.openai.com',
+                    since: sinceDate,
                 });
 
                 if (uids && uids.length > 0) {
-                    // Only fetch last 20 to keep it fast
                     const recentUids = uids.slice(-20);
 
                     for (const uid of recentUids) {
