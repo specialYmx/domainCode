@@ -9,6 +9,25 @@ export interface VerificationCode {
     date: Date;
 }
 
+function parseList(value: string | undefined): string[] {
+    if (!value) return [];
+    return value
+        .split(",")
+        .map((item) => item.trim().toLowerCase())
+        .filter(Boolean);
+}
+
+function senderAllowed(sender: string, allowedSenders: string[], allowedDomains: string[]): boolean {
+    if (!sender) return false;
+    const normalized = sender.toLowerCase();
+    if (allowedSenders.length === 0 && allowedDomains.length === 0) return true;
+    if (allowedSenders.includes(normalized)) return true;
+    for (const domain of allowedDomains) {
+        if (normalized.endsWith(`@${domain}`)) return true;
+    }
+    return false;
+}
+
 export async function fetchChatGPTCodes(): Promise<VerificationCode[]> {
     const client = new ImapFlow({
         host: process.env.EMAIL_HOST || 'imap.qq.com',
@@ -33,7 +52,6 @@ export async function fetchChatGPTCodes(): Promise<VerificationCode[]> {
                 const sinceDate = new Date(Date.now() - sinceHours * 60 * 60 * 1000);
 
                 const uids = await client.search({
-                    from: process.env.NEXT_PUBLIC_SENDER_FILTER || 'noreply@tm.openai.com',
                     since: sinceDate,
                 });
 
@@ -46,13 +64,21 @@ export async function fetchChatGPTCodes(): Promise<VerificationCode[]> {
 
                             const subject = parsed.subject || '';
                             const body = parsed.text || '';
+                            const fromAddress = parsed.from?.value[0]?.address || '';
+                            const allowAnySender = (process.env.ALLOW_ANY_SENDER || "").toLowerCase() === "true";
+                            const allowedSenders = parseList(process.env.ALLOWED_SENDERS || process.env.NEXT_PUBLIC_SENDER_FILTER);
+                            const allowedDomains = parseList(process.env.ALLOWED_SENDER_DOMAINS);
 
-                            if (subject.toLowerCase().includes('chatgpt') || subject.includes('验证码')) {
-                                const codeMatch = (subject + ' ' + body).match(/\b\d{6}\b/);
-                                if (codeMatch) {
+                            if (!allowAnySender && !senderAllowed(fromAddress, allowedSenders, allowedDomains)) {
+                                continue;
+                            }
+
+                            const matches = (subject + ' ' + body).match(/\b\d{6}\b/g) || [];
+                            if (matches.length > 0) {
+                                for (const match of matches) {
                                     codes.push({
-                                        code: codeMatch[0],
-                                        sender: parsed.from?.value[0]?.address || 'Unknown',
+                                        code: match,
+                                        sender: fromAddress || 'Unknown',
                                         recipient: parsed.to ? (Array.isArray(parsed.to) ? parsed.to[0].text : parsed.to.text) : 'Unknown',
                                         subject,
                                         date: parsed.date || new Date(),
