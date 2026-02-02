@@ -9,6 +9,13 @@ export interface VerificationCode {
     date: Date;
 }
 
+interface CodeCandidate {
+    code: string;
+    index: number;
+    text: string;
+    sourceWeight: number;
+}
+
 function parseList(value: string | undefined): string[] {
     if (!value) return [];
     return value
@@ -26,6 +33,59 @@ function senderAllowed(sender: string, allowedSenders: string[], allowedDomains:
         if (normalized.endsWith(`@${domain}`)) return true;
     }
     return false;
+}
+
+function collectCandidates(text: string, sourceWeight: number): CodeCandidate[] {
+    const results: CodeCandidate[] = [];
+    const regex = /\b\d{6}\b/g;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(text)) !== null) {
+        results.push({
+            code: match[0],
+            index: match.index,
+            text,
+            sourceWeight,
+        });
+    }
+    return results;
+}
+
+function scoreCandidate(candidate: CodeCandidate): number {
+    const keywords = [
+        "验证码",
+        "verification code",
+        "verification",
+        "passcode",
+        "otp",
+        "code",
+    ];
+    let bestDistance = Number.MAX_SAFE_INTEGER;
+    const lower = candidate.text.toLowerCase();
+
+    for (const keyword of keywords) {
+        let start = 0;
+        while (true) {
+            const idx = lower.indexOf(keyword, start);
+            if (idx === -1) break;
+            const dist = Math.abs(candidate.index - idx);
+            if (dist < bestDistance) bestDistance = dist;
+            start = idx + keyword.length;
+        }
+    }
+
+    const proximityScore = bestDistance === Number.MAX_SAFE_INTEGER ? 0 : 10000 - Math.min(bestDistance, 10000);
+    return candidate.sourceWeight + proximityScore;
+}
+
+function pickBestCode(subject: string, body: string): string | null {
+    const candidates = [
+        ...collectCandidates(subject, 100000), // Prefer subject if other signals are similar.
+        ...collectCandidates(body, 0),
+    ];
+    if (candidates.length === 0) return null;
+
+    candidates.sort((a, b) => scoreCandidate(b) - scoreCandidate(a));
+    return candidates[0].code;
 }
 
 export async function fetchChatGPTCodes(): Promise<VerificationCode[]> {
@@ -73,17 +133,15 @@ export async function fetchChatGPTCodes(): Promise<VerificationCode[]> {
                                 continue;
                             }
 
-                            const matches = (subject + ' ' + body).match(/\b\d{6}\b/g) || [];
-                            if (matches.length > 0) {
-                                for (const match of matches) {
-                                    codes.push({
-                                        code: match,
-                                        sender: fromAddress || 'Unknown',
-                                        recipient: parsed.to ? (Array.isArray(parsed.to) ? parsed.to[0].text : parsed.to.text) : 'Unknown',
-                                        subject,
-                                        date: parsed.date || new Date(),
-                                    });
-                                }
+                            const bestCode = pickBestCode(subject, body);
+                            if (bestCode) {
+                                codes.push({
+                                    code: bestCode,
+                                    sender: fromAddress || 'Unknown',
+                                    recipient: parsed.to ? (Array.isArray(parsed.to) ? parsed.to[0].text : parsed.to.text) : 'Unknown',
+                                    subject,
+                                    date: parsed.date || new Date(),
+                                });
                             }
                         }
                     }
