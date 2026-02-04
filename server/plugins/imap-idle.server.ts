@@ -1,6 +1,7 @@
-import { ImapFlow } from "imapflow";
-import { fetchChatGPTCodes } from "../utils/imap";
-import { setCache } from "../utils/cache";
+﻿import { ImapFlow } from "imapflow";
+import { fetchChatGPTCodes, isTransientImapTlsError } from "../utils/imap";
+import { setCachesByTenant } from "../utils/cache";
+import { getAllTenantIds, groupCodesByTenant } from "../utils/tenant";
 
 const globalKey = "__imapIdleStarted__";
 
@@ -23,12 +24,21 @@ function createClient(): ImapFlow {
 
 async function refreshNow(): Promise<void> {
   const codes = await fetchChatGPTCodes();
-  setCache(codes);
+  const grouped = groupCodesByTenant(codes);
+  setCachesByTenant(getAllTenantIds(), grouped);
 }
 
 async function runSession(): Promise<void> {
   const client = createClient();
   let refreshTimer: NodeJS.Timeout | null = null;
+
+  client.on("error", (err) => {
+    if (isTransientImapTlsError(err)) {
+      console.warn("IMAP IDLE TLS transient error, reconnecting:", (err as any)?.message || err);
+      return;
+    }
+    console.error("IMAP IDLE client error:", err);
+  });
 
   const scheduleRefresh = () => {
     if (refreshTimer) return;
@@ -74,7 +84,11 @@ async function startWatcher(): Promise<void> {
       await runSession();
       backoff = 1000;
     } catch (err) {
-      console.error("IMAP idle error:", err);
+      if (isTransientImapTlsError(err)) {
+        console.warn("IMAP idle TLS transient error:", (err as any)?.message || err);
+      } else {
+        console.error("IMAP idle error:", err);
+      }
       await sleep(backoff);
       backoff = Math.min(backoff * 2, maxBackoff);
     }

@@ -5,6 +5,7 @@ export interface VerificationCode {
     code: string;
     sender: string;
     recipient?: string;
+    normalizedRecipient?: string;
     subject: string;
     date: Date;
 }
@@ -14,6 +15,24 @@ interface CodeCandidate {
     index: number;
     text: string;
     sourceWeight: number;
+}
+
+export function isTransientImapTlsError(error: unknown): boolean {
+    const code = typeof error === "object" && error && "code" in error
+        ? String((error as any).code || "")
+        : "";
+    const message = typeof error === "object" && error && "message" in error
+        ? String((error as any).message || "").toLowerCase()
+        : "";
+    const reason = typeof error === "object" && error && "reason" in error
+        ? String((error as any).reason || "").toLowerCase()
+        : "";
+
+    if (code === "ERR_SSL_DECRYPTION_FAILED_OR_BAD_RECORD_MAC") return true;
+    if (reason.includes("bad record mac")) return true;
+    if (message.includes("bad record mac")) return true;
+    if (message.includes("decryption failed")) return true;
+    return false;
 }
 
 function parseList(value: string | undefined): string[] {
@@ -33,6 +52,66 @@ function senderAllowed(sender: string, allowedSenders: string[], allowedDomains:
         if (normalized.endsWith(`@${domain}`)) return true;
     }
     return false;
+}
+
+function normalizeEmailAddress(value: string): string | null {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return null;
+    const match = normalized.match(/([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/i);
+    if (!match) return null;
+    return match[1];
+}
+
+function extractFromHeaderValue(value: unknown): string[] {
+    if (!value) return [];
+
+    if (typeof value === "string") {
+        return value
+            .split(/[,\s]+/)
+            .map((part) => normalizeEmailAddress(part))
+            .filter((item): item is string => Boolean(item));
+    }
+
+    if (Array.isArray(value)) {
+        const output: string[] = [];
+        for (const item of value) {
+            output.push(...extractFromHeaderValue(item));
+        }
+        return output;
+    }
+
+    if (typeof value === "object" && value && "value" in value) {
+        const list = (value as any).value;
+        if (!Array.isArray(list)) return [];
+        return list
+            .map((entry: any) => normalizeEmailAddress(entry?.address || ""))
+            .filter((item: string | null): item is string => Boolean(item));
+    }
+
+    return [];
+}
+
+function extractRecipients(parsed: any): string[] {
+    const recipients = new Set<string>();
+    const headers = parsed?.headers;
+    const headerCandidates = [
+        headers?.get?.("x-original-to"),
+        headers?.get?.("delivered-to"),
+        headers?.get?.("envelope-to"),
+        headers?.get?.("to"),
+    ];
+
+    for (const candidate of headerCandidates) {
+        for (const email of extractFromHeaderValue(candidate)) {
+            recipients.add(email);
+        }
+    }
+
+    for (const email of extractFromHeaderValue(parsed?.to)) {
+        recipients.add(email);
+    }
+
+    return Array.from(recipients);
 }
 
 function collectCandidates(text: string, sourceWeight: number): CodeCandidate[] {
@@ -101,6 +180,13 @@ export async function fetchChatGPTCodes(): Promise<VerificationCode[]> {
     });
 
     const codes: VerificationCode[] = [];
+    client.on("error", (err) => {
+        if (isTransientImapTlsError(err)) {
+            console.warn("IMAP TLS transient error, will retry:", (err as any)?.message || err);
+            return;
+        }
+        console.error("IMAP client error:", err);
+    });
 
     try {
         await client.connect();
@@ -135,10 +221,13 @@ export async function fetchChatGPTCodes(): Promise<VerificationCode[]> {
 
                             const bestCode = pickBestCode(subject, body);
                             if (bestCode) {
+                                const recipients = extractRecipients(parsed);
+                                const normalizedRecipient = recipients[0] || undefined;
                                 codes.push({
                                     code: bestCode,
                                     sender: fromAddress || 'Unknown',
-                                    recipient: parsed.to ? (Array.isArray(parsed.to) ? parsed.to[0].text : parsed.to.text) : 'Unknown',
+                                    recipient: normalizedRecipient || "Unknown",
+                                    normalizedRecipient,
                                     subject,
                                     date: parsed.date || new Date(),
                                 });
@@ -153,7 +242,11 @@ export async function fetchChatGPTCodes(): Promise<VerificationCode[]> {
             await client.logout();
         }
     } catch (err) {
-        console.error('IMAP error:', err);
+        if (isTransientImapTlsError(err)) {
+            console.warn("IMAP TLS transient error during fetch:", (err as any)?.message || err);
+        } else {
+            console.error('IMAP error:', err);
+        }
         throw err;
     }
 

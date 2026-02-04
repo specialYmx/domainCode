@@ -1,6 +1,8 @@
-import { getCache, subscribeCache } from "../utils/cache";
+﻿import { getTenantCache, subscribeTenantCache } from "../utils/cache";
+import { requireTenant } from "../utils/auth";
 
 export default defineEventHandler((event) => {
+  const tenant = requireTenant(event);
   const res = event.node.res;
   res.statusCode = 200;
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
@@ -11,13 +13,13 @@ export default defineEventHandler((event) => {
     res.write(`data: ${JSON.stringify(payload)}\n\n`);
   };
 
-  const cached = getCache();
+  const cached = getTenantCache(tenant.id);
   if (cached) {
-    send({ type: "codes", data: cached });
+    send({ type: "codes", data: cached, tenantId: tenant.id });
   }
 
-  const unsubscribe = subscribeCache((nextCache) => {
-    send({ type: "codes", data: nextCache });
+  const unsubscribe = subscribeTenantCache(tenant.id, (nextCache) => {
+    send({ type: "codes", data: nextCache, tenantId: tenant.id });
   });
 
   const keepAlive = setInterval(() => {

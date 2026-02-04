@@ -2,8 +2,10 @@
 .output
 .data
 .nuxt
+.nuxt2
 .nitro
 .cache
+.vite-cache
 dist
 
 # Node dependencies
@@ -22,3 +24,7 @@ logs
 .env
 .env.*
 !.env.example
+
+# Local tenant config with access secrets
+data/tenants.json
+data/*.test.json

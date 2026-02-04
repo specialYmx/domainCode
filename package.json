@@ -8,8 +8,14 @@
   "scripts": {
     "build": "node -r ./scripts/node-preload.cjs ./node_modules/nuxi/bin/nuxi.mjs build",
     "dev": "node -r ./scripts/node-preload.cjs ./node_modules/nuxi/bin/nuxi.mjs dev --host 127.0.0.1 --port 3000",
+    "dev:lan": "node -r ./scripts/node-preload.cjs ./node_modules/nuxi/bin/nuxi.mjs dev --host 0.0.0.0 --port 3000",
     "generate": "node -r ./scripts/node-preload.cjs ./node_modules/nuxi/bin/nuxi.mjs generate",
-    "preview": "node -r ./scripts/node-preload.cjs ./node_modules/nuxi/bin/nuxi.mjs preview"
+    "preview": "node -r ./scripts/node-preload.cjs ./node_modules/nuxi/bin/nuxi.mjs preview",
+    "start": "node .output/server/index.mjs",
+    "tenant:add": "node ./scripts/tenant-manager.mjs add",
+    "tenant:append": "node ./scripts/tenant-manager.mjs append",
+    "tenant:disable": "node ./scripts/tenant-manager.mjs disable",
+    "tenant:rotate-key": "node ./scripts/tenant-manager.mjs rotate-key"
   },
   "dependencies": {
     "imapflow": "^1.2.8",

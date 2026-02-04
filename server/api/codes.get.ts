@@ -1,24 +1,44 @@
-﻿import { getCache, setCache } from "../utils/cache";
+﻿import { getTenantCache, setCachesByTenant } from "../utils/cache";
+import { requireTenant } from "../utils/auth";
 import { fetchChatGPTCodes } from "../utils/imap";
+import { getAllTenantIds, groupCodesByTenant } from "../utils/tenant";
 
-let refreshInFlight: Promise<any[]> | null = null;
+let refreshInFlight: Promise<Record<string, any[]>> | null = null;
+const REFRESH_TIMEOUT_MS = 12_000;
 
-async function refreshCache(): Promise<any[]> {
+class RefreshTimeoutError extends Error {
+    constructor() {
+        super("Refresh timeout");
+    }
+}
+
+async function refreshCache(): Promise<Record<string, any[]>> {
     if (refreshInFlight) return refreshInFlight;
     refreshInFlight = (async () => {
         const codes = await fetchChatGPTCodes();
-        setCache(codes);
-        return codes;
+        const grouped = groupCodesByTenant(codes);
+        setCachesByTenant(getAllTenantIds(), grouped);
+        return grouped;
     })().finally(() => {
         refreshInFlight = null;
     });
     return refreshInFlight;
 }
 
+async function refreshCacheWithTimeout(timeoutMs: number): Promise<Record<string, any[]>> {
+    return await Promise.race([
+        refreshCache(),
+        new Promise<Record<string, any[]>>((_, reject) =>
+            setTimeout(() => reject(new RefreshTimeoutError()), timeoutMs),
+        ),
+    ]);
+}
+
 export default defineEventHandler(async (event) => {
+    const tenant = requireTenant(event);
     const query = getQuery(event);
     const forceRefresh = query.force === "true";
-    const cached = getCache();
+    const cached = getTenantCache(tenant.id);
     const now = Date.now();
 
     if (!forceRefresh && cached) {
@@ -28,26 +48,64 @@ export default defineEventHandler(async (event) => {
         }
         return {
             success: true,
+            tenantId: tenant.id,
             codes: cached.codes,
             cached: true,
             cacheAge: Math.floor(cacheAgeMs / 1000),
         };
     }
 
-    try {
-        const codes = await refreshCache();
+    if (!forceRefresh && !cached) {
+        refreshCache().catch((err) => console.error("IMAP refresh error:", err));
         return {
             success: true,
-            codes,
+            tenantId: tenant.id,
+            codes: [],
+            cached: false,
+            warming: true,
+        };
+    }
+
+    try {
+        await refreshCacheWithTimeout(REFRESH_TIMEOUT_MS);
+        const current = getTenantCache(tenant.id);
+        return {
+            success: true,
+            tenantId: tenant.id,
+            codes: current?.codes || [],
             cached: false,
         };
     } catch (error: any) {
+        const timedOut = error instanceof RefreshTimeoutError;
+        if (cached) {
+            return {
+                success: true,
+                tenantId: tenant.id,
+                codes: cached.codes,
+                cached: true,
+                stale: true,
+                timeout: timedOut || undefined,
+            };
+        }
+
+        if (timedOut) {
+            refreshCache().catch((err) => console.error("IMAP refresh error:", err));
+            return {
+                success: true,
+                tenantId: tenant.id,
+                codes: [],
+                cached: false,
+                warming: true,
+                timeout: true,
+            };
+        }
+
         return {
             success: false,
+            tenantId: tenant.id,
             codes: [],
             cached: false,
             error: error?.message || "Failed to fetch codes",
         };
     }
 });
-

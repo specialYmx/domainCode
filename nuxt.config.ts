@@ -1,27 +1,31 @@
-// https://nuxt.com/docs/api/configuration/nuxt-config
+﻿// https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
-  compatibilityDate: '2026-01-30',
+  compatibilityDate: '2026-02-03',
   ssr: false,
   devtools: { enabled: false },
   modules: ['@nuxtjs/tailwindcss'],
+  buildDir: '.nuxt2',
   css: ['~/assets/css/main.css'],
-  
-  // 修复 Vite HMR WebSocket 问题
   vite: {
+    cacheDir: '.vite-cache',
+    optimizeDeps: {
+      noDiscovery: true,
+      include: [],
+    },
     server: {
       hmr: {
-        protocol: 'ws',
-        host: '127.0.0.1',
-        clientPort: 3000, // 与开发服务器端口一致
+        protocol: "ws",
+        host: "127.0.0.1",
+        clientPort: 3000,
+        path: "/_nuxt/",
       },
       watch: {
-        usePolling: true, // Windows 文件系统兼容性
-      }
-    }
+        usePolling: true,
+      },
+    },
   },
-
-  // 优化 SSR 启动性能
   nitro: {
     preset: 'node-server',
-  }
-})
+    compatibilityDate: '2026-02-03',
+  },
+});

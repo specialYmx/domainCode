@@ -5,21 +5,53 @@ export interface CacheData {
 
 type CacheListener = (cache: CacheData) => void;
 
-let cache: CacheData | null = null;
-const listeners = new Set<CacheListener>();
+const tenantCache = new Map<string, CacheData>();
+const tenantListeners = new Map<string, Set<CacheListener>>();
 
-export function getCache(): CacheData | null {
-  return cache;
+export function getTenantCache(tenantId: string): CacheData | null {
+  return tenantCache.get(tenantId) || null;
 }
 
-export function setCache(codes: any[], timestamp: number = Date.now()): void {
-  cache = { codes, timestamp };
+export function setTenantCache(
+  tenantId: string,
+  codes: any[],
+  timestamp: number = Date.now(),
+): void {
+  const next = { codes, timestamp };
+  tenantCache.set(tenantId, next);
+  const listeners = tenantListeners.get(tenantId);
+  if (!listeners) return;
   for (const listener of listeners) {
-    listener(cache);
+    listener(next);
   }
 }
 
-export function subscribeCache(listener: CacheListener): () => void {
+export function setCachesByTenant(
+  tenantIds: string[],
+  codesByTenant: Record<string, any[]>,
+  timestamp: number = Date.now(),
+): void {
+  for (const tenantId of tenantIds) {
+    setTenantCache(tenantId, codesByTenant[tenantId] || [], timestamp);
+  }
+}
+
+export function subscribeTenantCache(
+  tenantId: string,
+  listener: CacheListener,
+): () => void {
+  let listeners = tenantListeners.get(tenantId);
+  if (!listeners) {
+    listeners = new Set<CacheListener>();
+    tenantListeners.set(tenantId, listeners);
+  }
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  return () => {
+    const current = tenantListeners.get(tenantId);
+    if (!current) return;
+    current.delete(listener);
+    if (current.size === 0) {
+      tenantListeners.delete(tenantId);
+    }
+  };
 }
