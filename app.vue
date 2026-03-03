@@ -10,6 +10,9 @@ const lastUpdated = ref("");
 const isRefreshing = ref(false);
 const refreshCooldown = ref(0);
 const cooldownTimer = ref<NodeJS.Timeout | null>(null);
+const autoRefreshProgress = ref(0);
+const autoRefreshRemainingMs = ref(10_000);
+const autoRefreshTimer = ref<NodeJS.Timeout | null>(null);
 const sseConnected = ref(false);
 const authLoading = ref(true);
 const isAuthenticated = ref(false);
@@ -17,8 +20,45 @@ const tenantName = ref("");
 const accessKey = ref("");
 const loginLoading = ref(false);
 const loginError = ref("");
+const copyNotice = ref("");
+const copyNoticeVisible = ref(false);
+const copyNoticeTimer = ref<NodeJS.Timeout | null>(null);
 let eventSource: EventSource | null = null;
 let pollTimer: NodeJS.Timeout | null = null;
+const AUTO_REFRESH_INTERVAL_MS = 6_000;
+
+const autoRefreshSecondsLeft = computed(() => {
+  return Math.max(0, Math.ceil(autoRefreshRemainingMs.value / 1000));
+});
+
+const stopAutoRefresh = () => {
+  if (autoRefreshTimer.value) {
+    clearInterval(autoRefreshTimer.value);
+    autoRefreshTimer.value = null;
+  }
+  autoRefreshProgress.value = 0;
+  autoRefreshRemainingMs.value = AUTO_REFRESH_INTERVAL_MS;
+};
+
+const startAutoRefresh = () => {
+  stopAutoRefresh();
+  let startedAt = Date.now();
+  autoRefreshProgress.value = 0;
+  autoRefreshRemainingMs.value = AUTO_REFRESH_INTERVAL_MS;
+
+  autoRefreshTimer.value = setInterval(() => {
+    const elapsed = Date.now() - startedAt;
+    const cycleElapsed = elapsed % AUTO_REFRESH_INTERVAL_MS;
+    const remaining = AUTO_REFRESH_INTERVAL_MS - cycleElapsed;
+    autoRefreshRemainingMs.value = remaining;
+    autoRefreshProgress.value = (cycleElapsed / AUTO_REFRESH_INTERVAL_MS) * 100;
+
+    // Keep cycle aligned to actual polling tick.
+    if (remaining <= 120) {
+      startedAt = Date.now();
+    }
+  }, 100);
+};
 
 const error = computed(() => {
   if (!isAuthenticated.value || authLoading.value) return null;
@@ -37,6 +77,7 @@ const stopRealtime = () => {
     clearInterval(pollTimer);
     pollTimer = null;
   }
+  stopAutoRefresh();
   if (eventSource) {
     eventSource.close();
     eventSource = null;
@@ -69,9 +110,10 @@ const startRealtime = () => {
     }
   };
 
+  startAutoRefresh();
   pollTimer = setInterval(() => {
     fetchCodes(false);
-  }, 10000);
+  }, AUTO_REFRESH_INTERVAL_MS);
 };
 
 const fetchCodes = async (force = true) => {
@@ -194,16 +236,48 @@ onMounted(() => {
 onUnmounted(() => {
   stopRealtime();
   if (cooldownTimer.value) clearInterval(cooldownTimer.value);
+  if (copyNoticeTimer.value) clearTimeout(copyNoticeTimer.value);
 });
 
-const copyToClipboard = (text: string) => {
-  navigator.clipboard.writeText(text);
-  alert("已复制到剪贴板");
+const showCopyNotice = (message: string) => {
+  copyNotice.value = message;
+  copyNoticeVisible.value = true;
+  if (copyNoticeTimer.value) clearTimeout(copyNoticeTimer.value);
+  copyNoticeTimer.value = setTimeout(() => {
+    copyNoticeVisible.value = false;
+  }, 1200);
+};
+
+const copyToClipboard = async (text: string) => {
+  try {
+    await navigator.clipboard.writeText(text);
+    showCopyNotice("已复制");
+  } catch {
+    showCopyNotice("复制失败");
+  }
 };
 </script>
 
 <template>
   <div class="h-screen overflow-hidden flex flex-col items-center bg-[#050505] text-white font-['Outfit',_sans-serif]">
+    <transition name="toast">
+      <div
+        v-if="copyNoticeVisible"
+        class="fixed top-5 left-1/2 -translate-x-1/2 z-[120] px-4 py-2 rounded-lg border border-emerald-400/30 bg-[#0b1714]/90 text-emerald-300 text-xs font-semibold tracking-[0.06em] shadow-lg shadow-emerald-900/20"
+      >
+        {{ copyNotice }}
+      </div>
+    </transition>
+
+    <div v-if="isAuthenticated" class="fixed left-0 top-0 w-full z-[110] pointer-events-none">
+      <div class="h-[2px]">
+        <div
+          class="h-full progress-nano"
+          :style="{ width: `${Math.max(2, autoRefreshProgress)}%` }"
+        ></div>
+      </div>
+    </div>
+
     <div class="fixed inset-0 overflow-hidden pointer-events-none">
       <div class="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-emerald-500/5 blur-[120px] rounded-full"></div>
       <div class="absolute -bottom-[10%] -right-[10%] w-[40%] h-[40%] bg-cyan-500/5 blur-[120px] rounded-full"></div>
@@ -215,7 +289,7 @@ const copyToClipboard = (text: string) => {
           验证码接收终端
         </h1>
         <p class="text-gray-500 text-xs md:text-sm font-medium">
-          约 40 秒后再点击刷新
+          自动每 6 秒刷新一次
         </p>
       </div>
 
@@ -235,6 +309,9 @@ const copyToClipboard = (text: string) => {
           </div>
           <div v-if="isAuthenticated" class="text-[10px] px-2 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-300">
             {{ tenantName || "已授权" }}
+          </div>
+          <div v-if="isAuthenticated" class="text-[10px] px-2 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 tabular-nums">
+            自动 {{ autoRefreshSecondsLeft }}s
           </div>
         </div>
 
@@ -316,7 +393,7 @@ const copyToClipboard = (text: string) => {
                 </div>
 
                 <div class="flex items-center justify-between md:justify-start gap-4 md:w-[150px] shrink-0">
-                  <div class="text-2xl md:text-3xl font-mono font-black text-white tracking-[0.1em] leading-none">
+                  <div class="text-xl md:text-2xl font-mono font-bold text-white tracking-[0.06em] leading-none">
                     {{ item.code }}
                   </div>
                   <button
@@ -405,6 +482,21 @@ body {
 
 .fade-enter-from, .fade-leave-to {
   opacity: 0;
+}
+
+.toast-enter-active, .toast-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.toast-enter-from, .toast-leave-to {
+  opacity: 0;
+  transform: translate(-50%, -8px);
+}
+
+.progress-nano {
+  background: linear-gradient(90deg, #22d3ee, #34d399);
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.55);
+  transition: width 0.1s linear;
 }
 
 .h-screen::after {
