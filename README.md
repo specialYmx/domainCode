@@ -32,6 +32,7 @@
       - 每个租户建议使用 `accessKeyHash`（SHA-256）
       - `recipients` 必须填完整邮箱地址（如 `ymx01@ymx.indevs.in`）
     - `TENANT_CONFIG_JSON`: 可选兼容方式（不推荐，维护困难）
+    - `ADMIN_ACCESS_KEY`: 管理页密钥（用于 `/admin` 新增租户）
 6.  生成域名并访问。
 
 ## 🔧 账号管理脚本（推荐）
@@ -51,6 +52,26 @@ npm run tenant:rotate-key -- --id order_001
 ```
 
 命令会直接更新 `data/tenants.json`，并在终端输出需要发给买家的访问码（仅输出一次，建议保存）。
+
+## 🧩 网页管理页（免命令行）
+
+配置好 `ADMIN_ACCESS_KEY` 后，访问：
+
+```text
+https://你的域名/admin
+```
+
+可在页面中直接：
+
+- 输入客户邮箱新增租户
+- 自动生成访问码（可一键复制）
+- 可选指定 `tenantId` / `displayName` / 自定义访问码
+
+注意：
+
+- 管理页写入的是 `TENANT_CONFIG_PATH` 对应文件。
+- 若仅使用 `TENANT_CONFIG_JSON`（未设置 `TENANT_CONFIG_PATH`），管理页会拒绝写入。
+- 请务必使用 HTTPS，并妥善保管 `ADMIN_ACCESS_KEY`。
 
 ## 🛠 本地开发
 
