@@ -206,8 +206,9 @@
     const rFileEl = document.getElementById("rFile");
     const copyBtn = document.getElementById("copyBtn");
 
-    const cacheKey = "domaincode_admin_key";
-    adminKeyEl.value = localStorage.getItem(cacheKey) || "";
+    try {
+      localStorage.removeItem("domaincode_admin_key");
+    } catch {}
 
     function setStatus(text, type) {
       statusEl.textContent = text;
@@ -220,13 +221,6 @@
         "Content-Type": "application/json",
         "x-admin-key": key,
       };
-    }
-
-    function persistAdminKey() {
-      const key = adminKeyEl.value.trim();
-      if (key) {
-        localStorage.setItem(cacheKey, key);
-      }
     }
 
     async function validateAdmin() {
@@ -245,7 +239,6 @@
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || "验证失败");
 
-        persistAdminKey();
         setStatus("验证成功，当前配置模式: " + data.mode + "，文件: " + data.tenantConfigPath, "ok");
       } catch (err) {
         setStatus(err.message || "验证失败", "err");
@@ -283,7 +276,6 @@
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || "创建失败");
 
-        persistAdminKey();
         setStatus("新增成功，访问码已生成。", "ok");
 
         rTenantEl.textContent = data.tenant.id;
