@@ -28,3 +28,6 @@ logs
 # Local tenant config with access secrets
 data/tenants.json
 data/*.test.json
+
+# Local migration handoff docs containing deployment secrets
+docs/*.local.md
