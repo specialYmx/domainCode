@@ -43,13 +43,52 @@ function parseList(value: string | undefined): string[] {
         .filter(Boolean);
 }
 
+function parseDuckDuckGoForwardedSender(sender: string): string | null {
+    const normalized = normalizeEmailAddress(sender);
+    if (!normalized || !normalized.endsWith("@duck.com")) return null;
+
+    const localPart = normalized.slice(0, -("@duck.com".length));
+    const marker = "_at_";
+    const markerIndex = localPart.indexOf(marker);
+    if (markerIndex <= 0) return null;
+
+    const originalLocal = localPart.slice(0, markerIndex);
+    const domainAndAlias = localPart.slice(markerIndex + marker.length);
+    const originalDomain = domainAndAlias.split("_")[0];
+    if (!originalLocal || !originalDomain || !originalDomain.includes(".")) return null;
+
+    return `${originalLocal}@${originalDomain}`;
+}
+
+function getSenderFilterCandidates(sender: string): string[] {
+    const candidates = new Set<string>();
+    const normalized = normalizeEmailAddress(sender);
+    if (normalized) candidates.add(normalized);
+
+    const duckOriginal = parseDuckDuckGoForwardedSender(sender);
+    if (duckOriginal) candidates.add(duckOriginal);
+
+    return Array.from(candidates);
+}
+
+function getSenderDisplay(sender: string): string {
+    const normalized = normalizeEmailAddress(sender) || sender;
+    const duckOriginal = parseDuckDuckGoForwardedSender(sender);
+    if (!duckOriginal) return normalized || "Unknown";
+    return `${duckOriginal} via ${normalized}`;
+}
+
 function senderAllowed(sender: string, allowedSenders: string[], allowedDomains: string[]): boolean {
     if (!sender) return false;
-    const normalized = sender.toLowerCase();
+    const candidates = getSenderFilterCandidates(sender);
+    if (candidates.length === 0) return false;
     if (allowedSenders.length === 0 && allowedDomains.length === 0) return true;
-    if (allowedSenders.includes(normalized)) return true;
-    for (const domain of allowedDomains) {
-        if (normalized.endsWith(`@${domain}`)) return true;
+
+    for (const candidate of candidates) {
+        if (allowedSenders.includes(candidate)) return true;
+        for (const domain of allowedDomains) {
+            if (candidate.endsWith(`@${domain}`)) return true;
+        }
     }
     return false;
 }
@@ -225,7 +264,7 @@ export async function fetchChatGPTCodes(): Promise<VerificationCode[]> {
                                 const normalizedRecipient = recipients[0] || undefined;
                                 codes.push({
                                     code: bestCode,
-                                    sender: fromAddress || 'Unknown',
+                                    sender: getSenderDisplay(fromAddress),
                                     recipient: normalizedRecipient || "Unknown",
                                     normalizedRecipient,
                                     subject,

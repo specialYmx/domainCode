@@ -97,3 +97,6 @@ npm run dev:lan
 - 日志出现 `ERR_SSL_DECRYPTION_FAILED_OR_BAD_RECORD_MAC`
   - 这是 IMAP TLS 链路的瞬时网络抖动/连接中断，不是访问码逻辑错误。
   - 服务会自动重连并指数退避；若频繁出现，优先排查网络、代理、邮箱服务端 TLS 稳定性。
+- DuckDuckGo Email Protection 转发后的 OpenAI 邮件不显示
+  - 请把 Duck 地址（如 `knelt-wimp-contest@duck.com`）加入对应租户的 `recipients`，不要填最终收信的 QQ 邮箱。
+  - DuckDuckGo 会把发件人改写成 `noreply_at_tm.openai.com_xxx@duck.com`；程序会自动还原为 `noreply@tm.openai.com` 再匹配 `ALLOWED_SENDERS` / `ALLOWED_SENDER_DOMAINS`。
