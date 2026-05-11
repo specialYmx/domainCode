@@ -115,7 +115,7 @@ function requireOption(opts, key, message) {
 }
 
 function createAccessKey() {
-  return randomBytes(12).toString("base64url");
+  return randomBytes(12).toString("base64url").replace(/-/g, "_");
 }
 
 function addTenant(opts) {

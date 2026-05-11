@@ -159,6 +159,11 @@
         </div>
 
         <div>
+          <label for="customerPassword">登录密码 (可选，仅用于复制)</label>
+          <input id="customerPassword" type="text" placeholder="客户账号登录密码" />
+        </div>
+
+        <div>
           <label for="displayName">显示名 (可选)</label>
           <input id="displayName" type="text" placeholder="默认等于邮箱" />
         </div>
@@ -184,7 +189,8 @@
       <div id="result" class="result" style="display:none">
         <div class="row"><span class="tag">新租户</span><span id="rTenant" class="mono"></span></div>
         <div class="row"><span class="tag">邮箱</span><span id="rEmail" class="mono"></span></div>
-        <div class="row"><span class="tag">访问码</span><span id="rKey" class="mono"></span><button id="copyBtn" class="btn-secondary" type="button">复制</button></div>
+        <div id="rPasswordRow" class="row" style="display:none"><span class="tag">密码</span><span id="rPassword" class="mono"></span></div>
+        <div class="row"><span class="tag">访问码</span><span id="rKey" class="mono"></span><button id="copyKeyBtn" class="btn-secondary" type="button">复制访问码</button><button id="copyDeliveryBtn" class="btn-primary" type="button">复制交付信息</button></div>
         <div class="row"><span class="tag">配置文件</span><span id="rFile" class="mono"></span></div>
       </div>
     </section>
@@ -193,6 +199,7 @@
   <script>
     const adminKeyEl = document.getElementById("adminKey");
     const emailEl = document.getElementById("email");
+    const customerPasswordEl = document.getElementById("customerPassword");
     const displayNameEl = document.getElementById("displayName");
     const tenantIdEl = document.getElementById("tenantId");
     const accessKeyEl = document.getElementById("accessKey");
@@ -202,9 +209,14 @@
     const resultEl = document.getElementById("result");
     const rTenantEl = document.getElementById("rTenant");
     const rEmailEl = document.getElementById("rEmail");
+    const rPasswordRowEl = document.getElementById("rPasswordRow");
+    const rPasswordEl = document.getElementById("rPassword");
     const rKeyEl = document.getElementById("rKey");
     const rFileEl = document.getElementById("rFile");
-    const copyBtn = document.getElementById("copyBtn");
+    const copyKeyBtn = document.getElementById("copyKeyBtn");
+    const copyDeliveryBtn = document.getElementById("copyDeliveryBtn");
+    const deliverySiteUrl = "https://ymxcode.ymx0516.qzz.io";
+    let latestDeliveryText = "";
 
     try {
       localStorage.removeItem("domaincode_admin_key");
@@ -221,6 +233,15 @@
         "Content-Type": "application/json",
         "x-admin-key": key,
       };
+    }
+
+    function buildDeliveryText(account, password, accessKey) {
+      return [
+        "账号：" + account,
+        "密码：" + password,
+        "访问码：" + accessKey + "（访问接码网站的申请码）",
+        "接收gpt登录验证码网站：" + deliverySiteUrl,
+      ].join("\\n");
     }
 
     async function validateAdmin() {
@@ -248,6 +269,7 @@
     async function createTenant() {
       const key = adminKeyEl.value.trim();
       const email = emailEl.value.trim();
+      const customerPassword = customerPasswordEl.value.trim();
       if (!key) {
         setStatus("请先输入管理员密钥", "err");
         return;
@@ -280,11 +302,19 @@
 
         rTenantEl.textContent = data.tenant.id;
         rEmailEl.textContent = data.tenant.recipients[0] || "";
+        rPasswordEl.textContent = customerPassword;
+        rPasswordRowEl.style.display = customerPassword ? "flex" : "none";
         rKeyEl.textContent = data.accessKey;
         rFileEl.textContent = data.file;
+        latestDeliveryText = buildDeliveryText(
+          data.tenant.recipients[0] || email,
+          customerPassword,
+          data.accessKey,
+        );
         resultEl.style.display = "block";
 
         emailEl.value = "";
+        customerPasswordEl.value = "";
         displayNameEl.value = "";
         tenantIdEl.value = "";
         accessKeyEl.value = "";
@@ -295,12 +325,21 @@
 
     pingBtn.addEventListener("click", validateAdmin);
     createBtn.addEventListener("click", createTenant);
-    copyBtn.addEventListener("click", async () => {
+    copyKeyBtn.addEventListener("click", async () => {
       const value = rKeyEl.textContent || "";
       if (!value) return;
       try {
         await navigator.clipboard.writeText(value);
         setStatus("访问码已复制", "ok");
+      } catch {
+        setStatus("复制失败，请手动复制", "err");
+      }
+    });
+    copyDeliveryBtn.addEventListener("click", async () => {
+      if (!latestDeliveryText) return;
+      try {
+        await navigator.clipboard.writeText(latestDeliveryText);
+        setStatus("交付信息已复制", "ok");
       } catch {
         setStatus("复制失败，请手动复制", "err");
       }

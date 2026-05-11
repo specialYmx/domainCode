@@ -95,7 +95,7 @@ function writeTenantArray(configPath: string, tenants: Array<Record<string, unkn
 }
 
 function createAccessKey(): string {
-  return randomBytes(12).toString("base64url");
+  return randomBytes(12).toString("base64url").replace(/-/g, "_");
 }
 
 export function createTenant(input: CreateTenantInput): CreateTenantResult {
